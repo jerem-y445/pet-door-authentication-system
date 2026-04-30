@@ -22,6 +22,8 @@
 #define IRQ_PIN    (4)
 #define SERVO_PIN  (5)
 
+static const uint32_t UID_VAL = 0x97F6B001;
+
 static const char *TAG_0 = "NTAG_READ";
 static const char *TAG_1 = "SERVO_CTRL";
 
@@ -33,6 +35,8 @@ void vReaderRFIDTask(void *pvParameters);
 void vServoTestTask(void *pvParameters);
 void vCreateRFIDTask(void);
 void vCreateServoTestTask(void);
+uint32_t concatenateArray(uint8_t array[], uint8_t length);
+
 
 // Error handling
 typedef struct {
@@ -46,13 +50,16 @@ static RFIDParams_t rfid_task_params = {
     .error = 0
 };
 
+
 void app_main() {
     ESP_LOGI(TAG_0, "APP MAIN");
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     vCreateRFIDTask();
+
     vCreateServoTestTask();
 }
+
 
 void vServoTestTask(void *pvParameters) {
     ESP_LOGI(TAG_1, "SERVO TEST TASK");
@@ -67,13 +74,14 @@ void vServoTestTask(void *pvParameters) {
     }
 }
 
+
 void vReaderRFIDTask(void *pvParameters) {
     RFIDParams_t *config = (RFIDParams_t *)pvParameters;
+    
+    uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0};  // Buffer to store the returned UID
+    uint8_t uid_length = 0;                 // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
 
     for ( ;; ) {
-        uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0};  // Buffer to store the returned UID
-        uint8_t uid_length;                     // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
-
         // Wait for an ISO14443A type cards (Mifare, etc.).  When one is found
         // 'uid' will be populated with the UID, and uid_length will indicate
         // if the uid is 4 bytes (Mifare Classic) or 7 bytes (Mifare Ultralight)
@@ -84,12 +92,22 @@ void vReaderRFIDTask(void *pvParameters) {
             // Display some basic information about the card
             ESP_LOGI(TAG_0, "\nFOUND ISO14443A CARD");
             ESP_LOGI(TAG_0, "UID LENGTH: %d BYTES", uid_length);
-            ESP_LOGI(TAG_0, "UID VALUE:"); 
+            ESP_LOGI(TAG_0, "UID VALUE:");
             ESP_LOG_BUFFER_HEX_LEVEL(TAG_0, uid, uid_length, ESP_LOG_INFO);
         }
+
+        if (concatenateArray(uid, uid_length) == UID_VAL) {
+            ESP_LOGI(TAG_0, "WELCOME!");
+        } else {
+            ESP_LOGI(TAG_0, "WHO ARE YOU?");
+        }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
+        
+        // Clear buffer for security
+        memset(uid, 0, sizeof uid);
     }
 }
+
 
 void vCreateServoTestTask(void) {
     ESP_LOGI(TAG_1, "INIT SERVO CONTROL");
@@ -119,6 +137,7 @@ void vCreateServoTestTask(void) {
     }
 
 }
+
 
 void vCreateRFIDTask(void) {
     ESP_LOGI(TAG_0, "INIT PN532 IN I2C MODE");
@@ -156,4 +175,28 @@ void vCreateRFIDTask(void) {
     if (xReturned != pdPASS) {
         ESP_LOGI(TAG_0, "FAILED TO CREATE TASK!\n");
     }
+}
+
+// Used for concatenating array-ed UID pulled from pn532_read_passive_target_id()
+// for later comparison with stored UID
+uint32_t concatenateArray(uint8_t array[], uint8_t length) {
+    uint32_t concatValue = array[0];
+
+    for (int i = 0; i < length - 1; ++i) {
+        concatValue = (concatValue << 8);
+        concatValue += array[i + 1];
+    }
+
+    return concatValue;
+    
+    /*
+    unsigned pow;
+    for (int i = 0; i < length; ++i) {
+        pow = 10;
+        while (array[i + 1] >= pow) {
+            pow *= 10;
+        }
+    } 
+    */   
+    
 }
